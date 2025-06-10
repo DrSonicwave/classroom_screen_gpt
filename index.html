@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>My Classroom Screen</title>
+
+<!-- ----------  Embedded CSS  ---------- -->
+<style>
+    /* ========  GLOBAL RESET & THEME  ======== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+        --primary-blue: hsl(210 70% 55%);
+        --light-blue:   hsl(210 100% 98%);
+        --dark-blue:    hsl(210 80% 35%);
+        --shadow: 0 2px 6px rgba(0,0,0,.15);
+        --radius: 12px;
+    }
+    body {
+        font-family: system-ui, sans-serif;
+        background: var(--light-blue);
+        color: #333;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* ========  HEADER  ======== */
+    header {
+        background: var(--primary-blue);
+        color: white;
+        padding: 1rem 1.5rem;
+        text-align: center;
+        font-size: 1.6rem;
+        font-weight: 600;
+        letter-spacing: .5px;
+        box-shadow: var(--shadow);
+    }
+
+    /* ========  MAIN LAYOUT  ======== */
+    main {
+        flex: 1;
+        display: flex;
+        gap: 1.2rem;
+        padding: 1.2rem;
+    }
+    .panel {
+        background: white;
+        flex: 1 1 0;
+        padding: 1.2rem;
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        display: flex;
+        flex-direction: column;
+    }
+    .panel h2 {
+        margin-bottom: .8rem;
+        color: var(--dark-blue);
+        font-size: 1.2rem;
+    }
+
+    /* Timer specific */
+    #timer-display {
+        font-size: 3rem;
+        font-weight: bold;
+        text-align: center;
+        margin: .8rem 0 1rem;
+    }
+    .timer-controls {
+        display: flex;
+        justify-content: center;
+        gap: .5rem;
+        flex-wrap: wrap;
+    }
+    button {
+        cursor: pointer;
+        padding: .5rem 1rem;
+        font-size: .95rem;
+        border: none;
+        border-radius: var(--radius);
+        background: var(--primary-blue);
+        color: white;
+        transition: background .2s;
+    }
+    button:hover { background: var(--dark-blue); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Picker list & log */
+    #names-input { width: 100%; min-height: 80px; }
+    #picked-log {
+        margin-top: .8rem;
+        flex: 1;
+        overflow-y: auto;
+        font-size: .9rem;
+        border-top: 1px solid #ddd;
+        padding-top: .6rem;
+    }
+    #picked-log span {
+        display: inline-block;
+        margin: .15rem .25rem;
+        background: var(--light-blue);
+        padding: .2rem .5rem;
+        border-radius: var(--radius);
+    }
+
+    /* Memo board */
+    #memo {
+        flex: 1;
+        resize: vertical;
+        min-height: 200px;
+    }
+
+    /* ========  RESPONSIVE  ======== */
+    @media (max-width: 768px) {
+        main { flex-direction: column; }
+    }
+
+    /* Flash effect on time-up */
+    @keyframes flash-bg {
+        0%, 100% { background: white; }
+        50%      { background: #ffdfdf; }
+    }
+    .flash { animation: flash-bg 200ms 6 ease-in-out; }
+</style>
+</head>
+
+<body>
+<header>My Classroom Screen</header>
+
+<main>
+    <!-- ==========  COUNTDOWN TIMER  ========== -->
+    <section class="panel" id="timer-panel">
+        <h2>Countdown Timer</h2>
+
+        <!-- Time setters -->
+        <label>
+            Minutes:
+            <input id="minutes" type="number" min="0" value="1" style="width:70px">
+        </label>
+        <label style="margin-left:.5rem;">
+            Seconds:
+            <input id="seconds" type="number" min="0" max="59" value="0" style="width:70px">
+        </label>
+
+        <!-- Live display -->
+        <div id="timer-display">01:00</div>
+
+        <!-- Controls -->
+        <div class="timer-controls">
+            <button id="start-btn">Start</button>
+            <button id="pause-btn" disabled>Pause</button>
+            <button id="reset-btn">Reset</button>
+        </div>
+    </section>
+
+    <!-- ==========  RANDOM PARTICIPANT PICKER  ========== -->
+    <section class="panel" id="picker-panel">
+        <h2>Random Participant Picker</h2>
+
+        <textarea id="names-input" placeholder="Paste comma-separated names here…"></textarea>
+        <button id="pick-btn" style="margin-top:.6rem;">Pick!</button>
+
+        <div id="picked-log"></div>
+    </section>
+
+    <!-- ==========  ANNOUNCEMENT MEMO BOARD  ========== -->
+    <section class="panel" id="memo-panel">
+        <h2>Announcement Memo Board</h2>
+        <textarea id="memo" placeholder="Type announcements here…"></textarea>
+        <small style="margin-top:.5rem;color:#666;">(Auto-saves every 2 s)</small>
+    </section>
+</main>
+
+<!-- ----------  Embedded JavaScript  ---------- -->
+<script>
+/* *************************************************
+   1. COUNTDOWN TIMER
+************************************************** */
+(() => {
+    // DOM shortcuts
+    const minInput   = document.getElementById('minutes');
+    const secInput   = document.getElementById('seconds');
+    const display    = document.getElementById('timer-display');
+    const startBtn   = document.getElementById('start-btn');
+    const pauseBtn   = document.getElementById('pause-btn');
+    const resetBtn   = document.getElementById('reset-btn');
+    const timerPanel = document.getElementById('timer-panel');
+
+    let totalSeconds = 60;      // initial 1 min
+    let remaining = totalSeconds;
+    let intervalId = null;
+
+    /* ----  Utility to format mm:ss  ---- */
+    const fmt = (s) => {
+        const m  = String(Math.floor(s / 60)).padStart(2,'0');
+        const ss = String(s % 60).padStart(2,'0');
+        return `${m}:${ss}`;
+    };
+
+    const updateDisplay = () => display.textContent = fmt(remaining);
+
+    /* ----  Beep using Web Audio API  ---- */
+    const beep = () => {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = 880; // A5
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+        osc.stop(ctx.currentTime + 0.2);
+    };
+
+    /* ----  Handle Start / Pause / Reset  ---- */
+    startBtn.onclick = () => {
+        // Grab fresh values only when starting from stopped state
+        if (intervalId === null) {
+            const mins = parseInt(minInput.value, 10) || 0;
+            const secs = parseInt(secInput.value, 10) || 0;
+            remaining = totalSeconds = mins * 60 + secs;
+            if (totalSeconds <= 0) return; // do nothing on 0
+        }
+        startBtn.disabled = true;
+        pauseBtn.disabled = false;
+
+        intervalId = setInterval(() => {
+            remaining--;
+            updateDisplay();
+
+            if (remaining <= 0) {
+                clearInterval(intervalId);
+                intervalId = null;
+                startBtn.disabled = false;
+                pauseBtn.disabled = true;
+                flashAndBeep();
+            }
+        }, 1000);
+    };
+
+    pauseBtn.onclick = () => {
+        clearInterval(intervalId);
+        intervalId = null;
+        startBtn.disabled = false;
+        pauseBtn.disabled = true;
+    };
+
+    resetBtn.onclick = () => {
+        clearInterval(intervalId);
+        intervalId = null;
+        remaining = totalSeconds;
+        updateDisplay();
+        startBtn.disabled = false;
+        pauseBtn.disabled = true;
+    };
+
+    /* ----  Flash panel and beep when finished  ---- */
+    const flashAndBeep = () => {
+        timerPanel.classList.add('flash');
+        beep();
+        setTimeout(() => timerPanel.classList.remove('flash'), 1200);
+    };
+
+    // Init display on load
+    updateDisplay();
+})();
+
+/* *************************************************
+   2. RANDOM PARTICIPANT PICKER
+************************************************** */
+(() => {
+    const textarea   = document.getElementById('names-input');
+    const pickBtn    = document.getElementById('pick-btn');
+    const pickedLog  = document.getElementById('picked-log');
+
+    let pool = [];
+    let picked = [];
+
+    /* ----  Render picked names  ---- */
+    const renderLog = () => {
+        pickedLog.innerHTML = picked.map(n => `<span>${n}</span>`).join('');
+    };
+
+    /* ----  Parse textarea into a fresh pool  ---- */
+    const refreshPool = () => {
+        const names = textarea.value.split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+        pool = names;
+        picked = [];
+        renderLog();
+    };
+
+    /* ----  Pick random name, update pools/log  ---- */
+    pickBtn.onclick = () => {
+        if (pool.length === 0) {
+            refreshPool();
+            if (pool.length === 0) return; // nothing to pick
+        }
+        const idx = Math.floor(Math.random() * pool.length);
+        const name = pool.splice(idx, 1)[0];
+        picked.push(name);
+        renderLog();
+        // Highlight picked name for 1 s
+        const span = pickedLog.lastElementChild;
+        span.style.background = 'yellow';
+        setTimeout(() => span.style.background = 'var(--light-blue)', 1000);
+    };
+})();
+
+/* *************************************************
+   3. ANNOUNCEMENT MEMO BOARD (Auto-save)
+************************************************** */
+(() => {
+    const memo = document.getElementById('memo');
+    const LS_KEY = 'classroom_memo';
+
+    // Load on start
+    memo.value = localStorage.getItem(LS_KEY) || '';
+
+    // Auto-save every 2 s
+    setInterval(() => {
+        localStorage.setItem(LS_KEY, memo.value);
+    }, 2000);
+})();
+</script>
+</body>
+</html>
+How it works in a nutshell
+
+Feature	Key Points
+Countdown Timer	Reads user-set minutes/seconds, updates every second, plays a Web-Audio beep and flashes the panel on completion; Start/Pause/Reset logic prevents overlap.
+Random Picker	Accepts comma-separated list, keeps an internal pool, logs each pick, auto-refreshes pool once all names are used.
+Memo Board	Simple <textarea> auto-saves to localStorage every two seconds and repopulates on reload.
+Layout & Style	Pure flexbox. Panels have rounded corners, soft shadows; media query stacks them vertically on small screens; header bar in soft blue.
+
+Feel free to tweak colors, fonts, or timings to suit your classroom’s vibe—everything is in one file for easy editing. Enjoy teaching!
+
+
+3/3
+
+
+
+
+
+
+지금까지의 대화가 도움이 되었나요?
+
+
+
+
+
+
+
+
+도구
+
+
